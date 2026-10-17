@@ -1,0 +1,74 @@
+name: Build Recovered NoRoot Firewall
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "noroot-firewall-editable-starter.zip"
+      - ".github/workflows/build-recovered.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check starter ZIP
+        run: |
+          test -f noroot-firewall-editable-starter.zip
+          unzip -t noroot-firewall-editable-starter.zip
+
+      - name: Extract project
+        run: |
+          mkdir -p "$RUNNER_TEMP/recovered"
+          unzip -q noroot-firewall-editable-starter.zip \
+            -d "$RUNNER_TEMP/recovered"
+          test -f "$RUNNER_TEMP/recovered/nrf-project/app/build.gradle"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: ${{ runner.temp }}/recovered/nrf-project
+        run: gradle assembleDebug --stacktrace
+
+      - name: Save build log
+        if: failure()
+        working-directory: ${{ runner.temp }}/recovered/nrf-project
+        run: |
+          gradle assembleDebug --stacktrace > "$RUNNER_TEMP/retry.log" 2>&1 || true
+          cp "$RUNNER_TEMP/retry.log" "$GITHUB_WORKSPACE/build-error.log"
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noroot-firewall-debug-apk
+          path: ${{ runner.temp }}/recovered/nrf-project/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+      - name: Upload build error log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noroot-firewall-build-error
+          path: build-error.log
+          if-no-files-found: ignore
+          retention-days: 7
+          
